@@ -1,5 +1,7 @@
 "use strict";
 const BASE = "/v0/management/plugins/cpa-codex-candy-eval";
+// Resource paths retain the public reverse-proxy mount, unlike API paths.
+const CPA_PREFIX = location.pathname.match(/^(.*?)\/v0\/resource\/plugins\//)?.[1] || "";
 const KEY_STORE = "cpa-codex-candy-eval.key";
 const PREF_STORE = "cpa-codex-candy-eval.prefs";
 const MASK_STORE = "cpa-codex-candy-eval.masked";
@@ -61,7 +63,7 @@ async function api(path, { method = "GET", body, apiKey, signal } = {}) {
   }
   let resp, text;
   try {
-    resp = await fetch(path, init);
+    resp = await fetch(CPA_PREFIX + path, init);
     text = await resp.text();
   } catch (err) {
     if (signal?.aborted) throw err;

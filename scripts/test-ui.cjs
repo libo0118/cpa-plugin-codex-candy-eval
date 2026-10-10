@@ -36,6 +36,7 @@ const context = vm.createContext({
   setTimeout(callback, delay) { const id = ++timerID; noticeTimers.set(id, { callback, delay }); return id; },
   clearTimeout(id) { noticeTimers.delete(id); },
   window: { crypto: {} }, // Verify the HTTP fallback, not just SubtleCrypto.
+  location: { pathname: '/v0/resource/plugins/cpa-codex-candy-eval/ui' },
   document: { compatMode: 'CSS1Compat', getElementById: element, querySelectorAll: () => [], createElement: () => ({ set innerHTML(html) { this.content = { firstElementChild: fakeNode(html) }; } }) },
   sessionStorage: { getItem: () => null },
   localStorage: {
@@ -53,6 +54,45 @@ const plain = value => JSON.parse(JSON.stringify(value));
 const stableID = (kind, parts) => kind + ':' + crypto.createHash('sha256').update(kind + parts.map(x => '\0' + (x || '').trim()).join('')).digest('hex').slice(0, 12);
 
 (async () => {
+  const endpoints = ['/v0/management/config', '/v8/management/config/api-keys', '/v1/models',
+    '/v0/management/plugins/cpa-codex-candy-eval/state', '/v0/management/auth-files/models?name=cred%2F1'];
+  const mounts = [
+    ['/v0/resource/plugins/cpa-codex-candy-eval/ui', ''],
+    ['/v0/resource/plugins/cpa-codex-candy-eval/ui/', ''],
+    ['/cpa/v0/resource/plugins/cpa-codex-candy-eval/ui', '/cpa'],
+    ['/cpa/v0/resource/plugins/cpa-codex-candy-eval/ui/', '/cpa'],
+    ['/gateway/cpa/v0/resource/plugins/cpa-codex-candy-eval/ui', '/gateway/cpa'],
+    ['/tenant%20one/cpa/v0/resource/plugins/cpa-codex-candy-eval/ui', '/tenant%20one/cpa'],
+    ['/management.html', ''],
+  ];
+  const apiSource = webFile('app.js').split('// Events and initialization.')[0];
+  for (const [pathname, prefix] of mounts) {
+    let request;
+    const requestContext = vm.createContext({ AbortController, AbortSignal, location: { pathname },
+      fetch: async (url, init) => { request = { url, init }; return { status: 200, ok: true, text: async () => '{"ok":true}' }; } });
+    vm.runInContext(apiSource + `\nkey = 'synthetic-management-key';`, requestContext);
+    const requestRun = code => vm.runInContext(code, requestContext);
+    for (const endpoint of endpoints) {
+      assert.deepEqual(plain(await requestRun(`api(${JSON.stringify(endpoint)})`)), { ok: true });
+      assert.equal(request.url, prefix + endpoint, `${pathname} must preserve its CPA mount prefix exactly once`);
+      assert.equal(request.init.headers.Authorization, 'Bearer synthetic-management-key');
+      assert.equal(request.init.cache, 'no-store');
+    }
+    await requestRun(`api('/v0/management/auth-files/status', {method:'PATCH',body:{name:'cred/1',disabled:true}})`);
+    assert.equal(request.url, prefix + '/v0/management/auth-files/status');
+    assert.equal(request.init.method, 'PATCH');
+    assert.equal(request.init.headers['Content-Type'], 'application/json');
+    assert.equal(request.init.body, '{"name":"cred/1","disabled":true}');
+    await requestRun(`api('/v1/models', {apiKey:'synthetic-client-key'})`);
+    assert.equal(request.init.headers.Authorization, 'Bearer synthetic-client-key');
+    requestContext.fetch = async () => ({ status: 403, ok: false, text: async () => '{"error":{"message":"Denied"}}' });
+    await assert.rejects(requestRun(`api('/v0/management/config')`), error => error.status === 403 && error.message === 'Denied');
+    requestContext.fetch = async () => ({ status: 401, ok: false, text: async () => '{"error":"Expired"}' });
+    await assert.rejects(requestRun(`api('/v0/management/config')`), error => error instanceof requestRun('AuthError'));
+    await assert.rejects(requestRun(`api('/v1/models', {apiKey:'synthetic-client-key'})`), error => error.status === 401 && !(error instanceof requestRun('AuthError')));
+    requestContext.fetch = async () => ({ status: 200, ok: true, text: async () => '[]' });
+    await assert.rejects(requestRun(`api('/v0/management/config')`), /服务器返回了无效数据/);
+  }
   let finishAPI;
   context.fetch = () => new Promise(resolve => { finishAPI = resolve; });
   run(`key='old-login'`);
@@ -511,5 +551,5 @@ const stableID = (kind, parts) => kind + ':' + crypto.createHash('sha256').updat
   assert.equal(element('app').hidden, true);
   assert.equal(element('login-error').textContent, 'Expired');
   assert(!element('mt-rows').innerHTML.includes('data-mt-run'));
-  console.log('UI checks passed: identities, filters, plans, enable switches, catalog recovery, ModelTrace results and controls, refresh, login reset, notices, metrics.');
+  console.log('UI checks passed: CPA mount prefixes (7 locations), API auth/body/errors, identities, filters, plans, enable switches, catalog recovery, ModelTrace results and controls, refresh, login reset, notices, metrics.');
 })().catch(err => { console.error(err); process.exitCode = 1; });

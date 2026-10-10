@@ -2,6 +2,8 @@
 
 在 [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) 管理面板中进行**糖果测试**、**模型指纹测试**、**ModelTrace 模型归因**和**鹈鹕测试**。
 
+本仓库为 `v0.3.13-libo.1` 修复分支，修复 `/cpa` 等反向代理子路径下的 API 请求；原版安装与说明保留，fork 的版本和构建说明见 [CUSTOM.md](CUSTOM.md)。
+
 ![example](docs/images/example.png)
 
 ## 安装
